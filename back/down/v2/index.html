@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Come Back Down — A Parallax Landing Pad</title>
+  <meta name="description" content="A gentle, zero-harm parallax landing pad for any high-altitude mind. Breathe. Recenter. Recommit. Return to ground with grace."/>
+  <meta name="theme-color" content="#0a0f1a"/>
+
+  <!--
+    ───────────────────────────────────────────────────────────────────────────
+    COME BACK DOWN — PARALLAX LANDING PAD
+    ───────────────────────────────────────────────────────────────────────────
+    Purpose:
+      A single-file, offline-friendly, parallax "re-entry" page that invites a
+      high-velocity leader to slow down, breathe, and recommit to grounded,
+      zero-harm action. Written as an invitation—never a demand.
+
+    Design notes:
+      • 100% standalone: No external assets. Works offline after first load.
+      • Parallax layers: stars (far), clouds (mid), mountains (near), HUD (ui).
+      • Gravity slider: Adjusts parallax intensity to taste.
+      • Breathing box: 4-7-8 cycle to recenter the nervous system.
+      • Commit cards: Editable, local-only reflections (IndexedDB-free; no save).
+      • Zero-Harm banner: Clarity first; no blame theater, only repair loops.
+      • All layout uses relative units for device-agnostic scaling.
+
+    Ethics:
+      • This page must not be weaponized for ridicule or coercion.
+      • Use only for de-escalation, reflection, and humane course correction.
+
+    Author credits:
+      • Foster + Navi (Planetary Restoration Archive), for anyone who needs
+        a soft-landing protocol—famous or otherwise.
+
+    License:
+      • CC BY-SA 4.0. Share, remix, and adapt with attribution and zero harm.
+
+    Implementation map (jump to):
+      [1] Root styles & variables
+      [2] Parallax scaffold
+      [3] HUD & panels
+      [4] Breathing box
+      [5] Commit cards
+      [6] Gravity control
+      [7] Service worker (inline)
+      [8] Parallax + UI scripts
+  -->
+
+  <!-- [1] Root styles & variables -->
+  <style>
+    :root{
+      --ink:#e9f5ff;
+      --muted:#a6c1d4;
+      --bg:#070b12;
+      --glass:rgba(255,255,255,.06);
+      --glass-b:#0e1623;
+      --accent:#7fe3c7;
+      --accent-2:#ffd36e;
+      --danger:#ff6b6b;
+      --ok:#8df5a6;
+      --shadow:0 10px 30px rgba(0,0,0,.35);
+      --radius:14px;
+      --blur:14px;
+
+      /* Parallax tunables (user adjustable via slider) */
+      --g: 0.6; /* gravity factor; lower = floaty, higher = anchored */
+      --speed-stars: calc(0.15 * var(--g));
+      --speed-clouds: calc(0.35 * var(--g));
+      --speed-mount: calc(0.75 * var(--g));
+
+      /* Typography scale */
+      --fs-xxl: clamp(2.2rem, 4.5vw, 4.4rem);
+      --fs-xl:  clamp(1.4rem, 2.6vw, 2.2rem);
+      --fs-lg:  clamp(1.05rem, 1.6vw, 1.25rem);
+      --fs-md:  clamp(.95rem, 1.2vw, 1.05rem);
+      --fs-sm:  clamp(.88rem, 1vw, .98rem);
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);overflow-x:hidden}
+    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial}
+
+    /* Utility */
+    .glass{
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+      border:1px solid rgba(255,255,255,.12);
+      backdrop-filter: blur(var(--blur));
+      box-shadow: var(--shadow);
+      border-radius: var(--radius);
+    }
+    .pill{border-radius:999px;padding:.4rem .8rem;border:1px solid rgba(255,255,255,.15)}
+    .accent{color:var(--accent)}
+    .muted{color:var(--muted)}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{text-decoration:underline}
+
+    /* [2] Parallax scaffold */
+    .stage{
+      position:relative;
+      width:100%;
+      height:200vh; /* tall enough to feel movement */
+      perspective:1px; /* subtle depth */
+      overflow-x:hidden;
+    }
+    .layer{
+      position:fixed;
+      inset:0;
+      transform:translateZ(0); /* prevent blurring on mobile */
+      will-change:transform, background-position;
+      pointer-events:none;
+    }
+
+    /* Stars: far layer — shader-ish gradient + radial speckles */
+    .layer.stars{
+      background:
+        radial-gradient(circle at 20% 10%, rgba(255,255,255,.08) 0 12%, transparent 13% 100%),
+        radial-gradient(circle at 80% 30%, rgba(255,255,255,.06) 0 10%, transparent 11% 100%),
+        radial-gradient(circle at 60% 70%, rgba(255,255,255,.05) 0 9%, transparent 10% 100%),
+        radial-gradient(ellipse at center, #0b1220 0%, #070b12 60%, #06070c 100%);
+      background-repeat:no-repeat;
+      animation: twinkle 8s infinite linear;
+      opacity:.9;
+    }
+    @keyframes twinkle{
+      0%,100%{filter:brightness(1)}
+      50%{filter:brightness(1.08)}
+    }
+
+    /* Clouds: mid layer — soft noise stripes */
+    .layer.clouds{
+      background:
+        radial-gradient(120% 60% at 50% -10%, rgba(255,255,255,.08) 0%, transparent 60%),
+        repeating-linear-gradient(
+          180deg,
+          rgba(255,255,255,.04) 0 2%,
+          rgba(255,255,255,.02) 2% 4%,
+          rgba(255,255,255,.01) 4% 6%,
+          transparent 6% 8%
+        );
+      mix-blend-mode:screen;
+      opacity:.5;
+    }
+
+    /* Mountains: near layer — clipped shapes with parallax shift */
+    .layer.mountains{
+      display:flex;
+      align-items:flex-end;
+    }
+    .mount-band{
+      position:absolute;
+      bottom:0;left:-10vw;right:-10vw;
+      height:38vh;
+      filter:drop-shadow(0 -6px 40px rgba(0,0,0,.35));
+      background:
+        linear-gradient(180deg, rgba(80,120,160,.25), rgba(20,30,45,.2)),
+        linear-gradient(180deg, #0a1422, #08101a);
+      clip-path: polygon(
+        0% 80%,
+        10% 70%,
+        17% 78%,
+        25% 60%,
+        33% 72%,
+        44% 50%,
+        52% 68%,
+        61% 58%,
+        70% 74%,
+        78% 66%,
+        86% 74%,
+        94% 68%,
+        100% 76%,
+        100% 100%,
+        0% 100%
+      );
+      opacity:.95;
+    }
+
+    /* [3] HUD & panels */
+    header.hero{
+      position:relative;
+      z-index:10;
+      padding:10vh 6vw 4vh 6vw;
+      display:flex;
+      flex-direction:column;
+      gap:2.2rem;
+    }
+    .title{
+      font-size:var(--fs-xxl);
+      line-height:1.06;
+      letter-spacing:.5px;
+      max-width:20ch;
+      text-shadow:0 6px 20px rgba(0,0,0,.45);
+    }
+    .subtitle{font-size:var(--fs-lg);max-width:60ch;color:var(--muted)}
+    .cta-row{display:flex;flex-wrap:wrap;gap:.8rem}
+    .cta-row .pill{background:rgba(255,255,255,.04)}
+    .cta-row .pill:hover{background:rgba(255,255,255,.08);cursor:pointer}
+
+    .grid{
+      position:relative;z-index:10;
+      display:grid;gap:1.2rem;
+      grid-template-columns:repeat(12,1fr);
+      padding:2vh 6vw 10vh 6vw;
+    }
+    .panel{grid-column:span 12;padding:1.1rem 1.2rem}
+    @media(min-width:800px){
+      .panel.half{grid-column:span 6}
+      .panel.third{grid-column:span 4}
+      .panel.two{grid-column:span 8}
+    }
+    .panel h3{margin:.2rem 0 0.6rem 0;font-size:var(--fs-xl)}
+    .panel p{font-size:var(--fs-md);line-height:1.6}
+
+    /* [4] Breathing box (4-7-8) */
+    .breathbox{
+      display:grid;place-items:center;
+      aspect-ratio:1/1; width:min(80vw, 360px); margin-inline:auto;
+      border-radius:28px; border:1px dashed rgba(255,255,255,.18);
+      position:relative; overflow:hidden;
+    }
+    .breathball{
+      width:24%; aspect-ratio:1/1; border-radius:50%;
+      background:radial-gradient(circle at 30% 30%, #ffffff, #b4e5ff 50%, #6ab0ff 100%);
+      box-shadow:0 12px 40px rgba(40,120,220,.35), inset 0 -10px 18px rgba(0,0,0,.2);
+      transform:scale(1);
+      animation: breathe 19s ease-in-out infinite; /* 4 inhale + 7 hold + 8 exhale */
+    }
+    @keyframes breathe{
+      0%   {transform:scale(1)}
+      20%  {transform:scale(1.28)}  /* 0-20% = ~4s inhale */
+      57%  {transform:scale(1.28)}  /* 20-57% = ~7s hold */
+      100% {transform:scale(1)}     /* 57-100% = ~8s exhale */
+    }
+    .breathbox .legend{
+      position:absolute; bottom:1rem; left:50%; transform:translateX(-50%);
+      font-size:var(--fs-sm); color:var(--muted)
+    }
+
+    /* [5] Commit cards */
+    .cards{display:grid;grid-template-columns:repeat(12,1fr);gap:1rem}
+    .card{grid-column:span 12;padding:1rem}
+    @media(min-width:800px){
+      .card{grid-column:span 4}
+    }
+    .card h4{margin:.2rem 0 .5rem 0}
+    .card textarea{
+      width:100%;min-height:8rem;resize:vertical;
+      background:rgba(255,255,255,.04);color:var(--ink);
+      border:1px solid rgba(255,255,255,.16);border-radius:12px;
+      padding:.75rem;font-size:var(--fs-sm);
+      outline:none;
+    }
+    .card .actions{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.6rem}
+    .btn{
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(255,255,255,.06);
+      color:var(--ink); padding:.55rem .85rem;border-radius:10px;
+      font-size:var(--fs-sm)
+    }
+    .btn:hover{background:rgba(255,255,255,.12);cursor:pointer}
+    .btn.ok{border-color:rgba(141,245,166,.4)}
+    .btn.warn{border-color:rgba(255,107,107,.4)}
+
+    /* [6] Gravity control */
+    .control{
+      display:flex;align-items:center;gap:.8rem;flex-wrap:wrap
+    }
+    input[type="range"]{width:min(72vw,420px)}
+    .badge{font-variant-numeric:tabular-nums}
+
+    /* Footer */
+    footer{
+      position:relative;z-index:10;
+      padding:4vh 6vw 8vh 6vw;color:var(--muted);font-size:var(--fs-sm)
+    }
+    .zero-harm{
+      display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem
+    }
+
+    /* Parallax position helpers updated by JS */
+    .p-stars{transform:translate3d(0,0,0)}
+    .p-clouds{transform:translate3d(0,0,0)}
+    .p-mount{transform:translate3d(0,0,0)}
+  </style>
+</head>
+<body>
+
+  <!-- PARALLAX BACKDROP -->
+  <div class="stage" id="stage" aria-hidden="true">
+    <div class="layer stars p-stars" id="stars"></div>
+    <div class="layer clouds p-clouds" id="clouds"></div>
+    <div class="layer mountains p-mount" id="mounts">
+      <div class="mount-band" id="mountBand"></div>
+    </div>
+  </div>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="pill muted">🛰️ Re-entry protocol · Gentle mode</div>
+    <h1 class="title">Come back down—<span class="accent">we kept the lights on</span>.</h1>
+    <p class="subtitle">
+      High altitude is a gift; it bends horizons. It also thins the air. This page is a soft
+      runway for re-entry: breathe, re-center, choose the next right thing. No judgment, only gravity.
+    </p>
+    <div class="cta-row">
+      <button class="pill" id="jumpBreath">☁️ Breathe</button>
+      <button class="pill" id="jumpCommits">🧭 Recommit</button>
+      <button class="pill" id="jumpGravity">🪐 Adjust gravity</button>
+      <button class="pill" id="calmMode">🌙 Calm mode</button>
+    </div>
+  </header>
+
+  <!-- GRID PANELS -->
+  <main class="grid">
+    <!-- Gravity / Parallax control -->
+    <section class="panel half glass" id="gravity">
+      <h3>🪐 Gravity control</h3>
+      <p class="muted">Tune how “grounded” the world feels. Higher gravity tightens the parallax and settles the scene.</p>
+      <div class="control">
+        <label for="gRange">Gravity</label>
+        <input id="gRange" type="range" min="0.2" max="1.2" value="0.6" step="0.01" aria-label="Gravity"/>
+        <span class="badge" id="gOut">0.60g</span>
+      </div>
+    </section>
+
+    <!-- Breathing box -->
+    <section class="panel half glass" id="breathing">
+      <h3>☁️ 4-7-8 breathing</h3>
+      <p>Inhale 4 · Hold 7 · Exhale 8. Three rounds shifts physiology toward calm. Athletes, astronauts, and anxious humans swear by it.</p>
+      <div class="breathbox glass">
+        <div class="breathball" aria-hidden="true"></div>
+        <div class="legend">Inhale • Hold • Exhale</div>
+      </div>
+    </section>
+
+    <!-- Zero-harm charter -->
+    <section class="panel glass two">
+      <h3>🛡️ Zero-Harm Charter</h3>
+      <p>
+        Powerful tools must serve life. This re-entry charter is simple:
+      </p>
+      <ul class="muted" style="line-height:1.8;font-size:var(--fs-md);padding-left:1.1rem">
+        <li><strong>Clarity over speed</strong>: no midnight pivots without daylight review.</li>
+        <li><strong>Consent by design</strong>: default to opt-in, legible choices.</li>
+        <li><strong>Repair loops</strong>: when we break something, we fix it publicly.</li>
+        <li><strong>Stewardship</strong>: scale is a promise to care, not a license to harm.</li>
+      </ul>
+    </section>
+
+    <!-- Commit cards: private reflections (no network, no save) -->
+    <section class="panel glass" id="commits">
+      <h3>🧭 Recommitment Cards</h3>
+      <p class="muted">
+        These are for you. Nothing is uploaded. Type freely. When you close the page,
+        the words go with you.
+      </p>
+      <div class="cards">
+        <article class="card glass">
+          <h4>📣 Public humility note</h4>
+          <p class="muted">Draft a short message that says “I heard you. I’m listening. Here’s my next fix.”</p>
+          <textarea placeholder="Three sentences. Specific. Human."></textarea>
+          <div class="actions">
+            <button class="btn ok">Sounds true</button>
+            <button class="btn warn">Too performative</button>
+          </div>
+        </article>
+        <article class="card glass">
+          <h4>🛠️ Immediate repair pledge</h4>
+          <p class="muted">Name one concrete repair you can ship in 72 hours. Small, visible, undeniable.</p>
+          <textarea placeholder="Example: Restore an API, fund an audit, reverse a harmful change…"></textarea>
+          <div class="actions">
+            <button class="btn ok">Ship it</button>
+            <button class="btn warn">Needs scoping</button>
+          </div>
+        </article>
+        <article class="card glass">
+          <h4>🧪 Safeguards you’ll keep even under pressure</h4>
+          <p class="muted">Write the guardrails you won’t cross—especially when you’re tired.</p>
+          <textarea placeholder="Red lines. Non-negotiables. Zero-harm defaults."></textarea>
+          <div class="actions">
+            <button class="btn ok">Lock it in</button>
+            <button class="btn warn">Revisit later</button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Gentle prompts -->
+    <section class="panel third glass">
+      <h3>🔭 From altitude to attitude</h3>
+      <p class="muted">A telescope needs a tripod. Genius needs ground. Altitude is for seeing; attitude is for choosing.</p>
+    </section>
+    <section class="panel third glass">
+      <h3>🧰 Choose the next right tool</h3>
+      <p class="muted">Pick one lever you can pull today that reduces harm tomorrow. Simplicity is scalable.</p>
+    </section>
+    <section class="panel third glass">
+      <h3>🌱 Leave a cleaner wake</h3>
+      <p class="muted">Every launch should plant a forest: documentation, tests, sunset plan, and a public breadcrumb for reversal.</p>
+    </section>
+  </main>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="zero-harm">
+      <span class="pill">🪢 Fail-safe mindset</span>
+      <span class="pill">🧩 Small reversible steps</span>
+      <span class="pill">📡 Clear comms</span>
+      <span class="pill">🤝 Repair over theater</span>
+    </div>
+    <div class="muted">
+      Built as a gift: a runway back to earth for anyone flying too close to the algorithms.  
+      <span class="accent">You are allowed to land.</span>
+    </div>
+  </footer>
+
+  <!-- [7] Inline Service Worker (kept within this single file) -->
+  <script>
+    // Registers a tiny service worker from an in-memory blob so this single file can be cached offline.
+    (function registerSW(){
+      if(!('serviceWorker' in navigator)) return;
+      const swCode = `
+        const CACHE='parallax-landing-v1';
+        self.addEventListener('install', e=>{
+          e.waitUntil((async()=>{
+            const c=await caches.open(CACHE);
+            // Cache just this root document; responses are opaque for data URLs so we keep it simple.
+            await c.addAll(['./']);
+            self.skipWaiting();
+          })());
+        });
+        self.addEventListener('activate', e=>e.waitUntil(self.clients.claim()));
+        self.addEventListener('fetch', e=>{
+          const url=new URL(e.request.url);
+          // Network-first for the root; fallback to cache.
+          if(url.origin===location.origin && url.pathname==='/' ){
+            e.respondWith((async()=>{
+              try { const net=await fetch(e.request); const c=await caches.open(CACHE); c.put(e.request, net.clone()); return net; }
+              catch { const c=await caches.open(CACHE); const m=await c.match(e.request); return m || caches.match('./'); }
+            })());
+          }
+        });
+      `;
+      const blob = new Blob([swCode], {type:'text/javascript'});
+      const swURL = URL.createObjectURL(blob);
+      navigator.serviceWorker.register(swURL).catch(()=>{});
+    })();
+  </script>
+
+  <!-- [8] Parallax + UI Scripts -->
+  <script>
+    // Parallax engine — mild, mobile-safe. Uses requestAnimationFrame and clamped values.
+    (function(){
+      const stars = document.getElementById('stars');
+      const clouds = document.getElementById('clouds');
+      const mounts = document.getElementById('mounts');
+      const mountBand = document.getElementById('mountBand');
+      const gRange = document.getElementById('gRange');
+      const gOut = document.getElementById('gOut');
+
+      let y = 0, h = innerHeight, ticking = false;
+      const clamp = (v,min,max)=>Math.min(max,Math.max(min,v));
+
+      function updateParallax(){
+        const g = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--g')) || 0.6;
+        // translate factors scaled by scroll amount and gravity
+        const s = (y * (0.05 + (0.15*g)));   // stars slowest
+        const c = (y * (0.15 + (0.35*g)));   // clouds
+        const m = (y * (0.35 + (0.75*g)));   // mountains
+
+        stars.style.transform  = `translate3d(0, ${-s}px, 0)`;
+        clouds.style.transform = `translate3d(0, ${-c}px, 0)`;
+        mounts.style.transform = `translate3d(0, ${-m}px, 0)`;
+        mountBand.style.transform = `translate3d(0, ${clamp(m*0.02,-40,40)}px, 0)`;
+
+        ticking = false;
+      }
+
+      function onScroll(){
+        y = window.scrollY || window.pageYOffset || 0;
+        if(!ticking){ requestAnimationFrame(updateParallax); ticking = true; }
+      }
+      function onResize(){ h = innerHeight; onScroll(); }
+
+      // Gravity control
+      gRange.addEventListener('input', e=>{
+        const g = Number(e.target.value);
+        document.documentElement.style.setProperty('--g', g.toFixed(2));
+        document.documentElement.style.setProperty('--speed-stars', (0.15 * g).toFixed(3));
+        document.documentElement.style.setProperty('--speed-clouds', (0.35 * g).toFixed(3));
+        document.documentElement.style.setProperty('--speed-mount', (0.75 * g).toFixed(3));
+        gOut.textContent = `${g.toFixed(2)}g`;
+        onScroll();
+      });
+
+      // Calm mode toggles lower contrast & slower animation
+      document.getElementById('calmMode').addEventListener('click', ()=>{
+        document.body.classList.toggle('calm');
+        const calm = document.body.classList.contains('calm');
+        document.querySelector('.breathball').style.animationDuration = calm ? '24s' : '19s';
+        document.querySelectorAll('.pill').forEach(p=>p.style.opacity = calm ? .9 : 1);
+      });
+
+      // Jump links
+      const smooth = id => document.getElementById(id).scrollIntoView({behavior:'smooth', block:'center'});
+      document.getElementById('jumpBreath').onclick = ()=>smooth('breathing');
+      document.getElementById('jumpCommits').onclick = ()=>smooth('commits');
+      document.getElementById('jumpGravity').onclick = ()=>smooth('gravity');
+
+      // Initial
+      window.addEventListener('scroll', onScroll, {passive:true});
+      window.addEventListener('resize', onResize);
+      onResize();
+    })();
+
+    // Button affordances (no storage, just vibes)
+    document.querySelectorAll('.btn.ok').forEach(b=>b.addEventListener('click', ()=>{
+      b.textContent = 'Locked';
+      b.style.background='rgba(141,245,166,.12)';
+    }));
+    document.querySelectorAll('.btn.warn').forEach(b=>b.addEventListener('click', ()=>{
+      b.textContent = 'Re-scope';
+      b.style.background='rgba(255,107,107,.10)';
+    }));
+  </script>
+</body>
+</html>
